@@ -23,7 +23,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdlib.h>
+#include <stdio.h>
+#include "audio_fw_glo.h"
 #include "smr_glo.h"
+#include "sdr_glo.h"
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -33,6 +38,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define AUDIO_REC 160
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -45,12 +51,26 @@ DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
 DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
 DMA_HandleTypeDef hdma_dfsdm1_flt0;
 
+UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_rx;
+DMA_HandleTypeDef hdma_usart2_tx;
+
 /* USER CODE BEGIN PV */
 
-#define AUDIO_REC 1024
 int32_t RecBuf[AUDIO_REC];
 int32_t PlayBuf[AUDIO_REC];
-uint32_t SignalPower = 0;
+
+int32_t					SoundDetectorOutputBuff[AUDIO_REC];
+
+void					*persistent_mem_ptr;
+void					*scratch_mem_ptr;
+sdr_static_param_t 		sdr_input_static_param_ptr;
+sdr_dynamic_param_t 	sdr_input_dynamic_param_ptr;
+buffer_t				*sdr_input_buffer;
+buffer_t				*sdr_output_buffer;
+
+int32_t 				ratio_threshold1_dB = 9;
+int32_t					ratio_threshold2_dB = 7;
 
 uint8_t DmaRecHalfBuffCplt = 0;
 uint8_t DmaRecBuffCplt = 0;
@@ -61,7 +81,16 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_DFSDM1_Init(void);
+static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
+
+static void SoundDetector_Init(void);
+
+int _write(int file, char *ptr, int len)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t *)ptr, len, 50);
+	return len;
+}
 
 /* USER CODE END PFP */
 
@@ -79,7 +108,6 @@ int main(void)
   /* USER CODE BEGIN 1 */
 
 	uint16_t i = 0;
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -102,23 +130,63 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_DFSDM1_Init();
+  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuf, AUDIO_REC);
 
+  HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuf, AUDIO_REC);
+  SoundDetector_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  //SignalPower = 0;
-	  for (i = 0; i < AUDIO_REC; i++)
-		  SignalPower = SignalPower+PlayBuf[i]*PlayBuf[i];
-	  SignalPower = SignalPower/(AUDIO_REC*2+1);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  /*
+	  if((DmaRecHalfBuffCplt == 1) || (DmaRecBuffCplt == 1))
+	  {
+
+
+		  StartIndex = (DmaRecBuffCplt == 1) ? 512 : 0;
+		  for(i = 0; i < AUDIO_REC; i++)
+		  {
+			  PlayBuf[i] = RecBuf[i + StartIndex] >> 8;
+		  }
+		  if( SDR_ERROR_NONE != sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr))
+		  {
+			  printf("sdr_process error: %ld\r\n",sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr));
+		  }
+	      if(DmaRecHalfBuffCplt  == 1)
+	      {
+	        DmaRecHalfBuffCplt  = 0;
+	      }
+	      else
+	      {
+	        DmaRecBuffCplt = 0;
+	      }
+		  if( SDR_ERROR_NONE != sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
+		  {
+			  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
+		  }
+		  else
+			  printf("state= %ld\r\n", sdr_input_dynamic_param_ptr.output_state);
+		  if(sdr_input_dynamic_param_ptr.output_state == 1)
+		  		  {
+		  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_RESET);
+		  		  	  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_SET);
+		  		  }
+		  		  else
+		  		  {
+		  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_SET);
+		  			  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
+		  		  }
+	  }
+	  */
+
 	  if(DmaRecHalfBuffCplt==1)
 	  {
 		  for (i = 0; i < AUDIO_REC/2; i++)
@@ -133,6 +201,29 @@ int main(void)
 
 		  DmaRecBuffCplt=0;
 	  }
+	  if( SDR_ERROR_NONE != sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr))
+	  {
+		  printf("sdr_process error: %ld\r\n",sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr));
+	  }
+	  if( SDR_ERROR_NONE != sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
+	  {
+		  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
+	  }
+	  //else
+		  //printf("state= %ld\r\n", sdr_input_dynamic_param_ptr.output_state);
+	  for (i = 0; i < AUDIO_REC; i++)
+		  printf("%ld\r\n",PlayBuf[i]);
+	  printf("\r\n\r\nEND\r\n\r\n");
+	  if(sdr_input_dynamic_param_ptr.output_state == 1)
+	  		  {
+	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_RESET);
+	  		  	  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_SET);
+	  		  }
+	  		  else
+	  		  {
+	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_SET);
+	  			  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
+	  		  }
   }
   /* USER CODE END 3 */
 }
@@ -177,7 +268,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_DFSDM1;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_DFSDM1;
+  PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Dfsdm1ClockSelection = RCC_DFSDM1CLKSOURCE_PCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -244,6 +336,41 @@ static void MX_DFSDM1_Init(void)
 
 }
 
+/**
+  * @brief USART2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART2_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART2_Init 0 */
+
+  /* USER CODE END USART2_Init 0 */
+
+  /* USER CODE BEGIN USART2_Init 1 */
+
+  /* USER CODE END USART2_Init 1 */
+  huart2.Instance = USART2;
+  huart2.Init.BaudRate = 115200;
+  huart2.Init.WordLength = UART_WORDLENGTH_8B;
+  huart2.Init.StopBits = UART_STOPBITS_1;
+  huart2.Init.Parity = UART_PARITY_NONE;
+  huart2.Init.Mode = UART_MODE_TX_RX;
+  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
+  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
+  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
+  if (HAL_UART_Init(&huart2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART2_Init 2 */
+
+  /* USER CODE END USART2_Init 2 */
+
+}
+
 /** 
   * Enable DMA controller clock
   */
@@ -257,6 +384,12 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
+  /* DMA1_Channel6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
+  /* DMA1_Channel7_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
 
 }
 
@@ -436,14 +569,6 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : USART_TX_Pin USART_RX_Pin */
-  GPIO_InitStruct.Pin = USART_TX_Pin|USART_RX_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF7_USART2;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
   /*Configure GPIO pin : GYRO_CS_Pin */
   GPIO_InitStruct.Pin = GYRO_CS_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -488,6 +613,61 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void SoundDetector_Init(void)
+{
+	/* CRC enable and reset */
+	__HAL_RCC_CRC_CLK_ENABLE();
+	CRC->CR = CRC_CR_RESET;
+
+	/* Memory allocation */
+	persistent_mem_ptr = malloc(sdr_persistent_mem_size);
+	scratch_mem_ptr    = malloc(sdr_scratch_mem_size);
+	sdr_input_buffer   = (buffer_t *)malloc(sizeof(buffer_t));
+	sdr_output_buffer   = (buffer_t *)malloc(sizeof(buffer_t));
+
+	/* sdr_reset() */
+	if(SDR_ERROR_NONE != sdr_reset(persistent_mem_ptr, scratch_mem_ptr))
+		printf("sdr_reset error: %ld\r\n", sdr_reset(persistent_mem_ptr, scratch_mem_ptr));
+
+	/* static_param initialization */
+	sdr_input_static_param_ptr.sampling_rate = 8000;
+	sdr_input_static_param_ptr.buffer_size   = AUDIO_REC;
+	sdr_input_static_param_ptr.learning_frame_nb = 2;
+
+	/* dynamic_param initialization */
+	sdr_input_dynamic_param_ptr.enable = 1;
+	sdr_input_dynamic_param_ptr.ratio_thr1_dB = ratio_threshold1_dB;
+	sdr_input_dynamic_param_ptr.ratio_thr2_dB = ratio_threshold2_dB;
+	sdr_input_dynamic_param_ptr.noise_pwr_min_dB = -60;
+	sdr_input_dynamic_param_ptr.hangover_nb_frame = 6;
+
+	/* sdr_setParam() */
+	if(SDR_ERROR_NONE != sdr_setParam(&sdr_input_static_param_ptr, persistent_mem_ptr))
+		printf("sdr_setParam error: %ld\r\n", sdr_setParam(&sdr_input_static_param_ptr, persistent_mem_ptr));
+
+	/* sdr_setConfig() */
+	if(SDR_ERROR_NONE != sdr_setConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
+		printf("sdr_setConfig error: %ld\r\n", sdr_setConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
+
+	/* buffers init */
+	sdr_input_buffer -> nb_channels = 1;
+	sdr_input_buffer -> nb_bytes_per_Sample = 3;
+	sdr_input_buffer -> data_ptr = PlayBuf;
+	sdr_input_buffer -> buffer_size = AUDIO_REC;
+	sdr_input_buffer -> mode = 1;
+
+	sdr_output_buffer -> nb_channels = 1;
+	sdr_output_buffer -> nb_bytes_per_Sample = 3;
+	sdr_output_buffer -> data_ptr = SoundDetectorOutputBuff;
+	sdr_output_buffer -> buffer_size = AUDIO_REC;
+	sdr_output_buffer -> mode = 1;
+
+	/* sdr_setConfig() */
+	if(SDR_ERROR_NONE != sdr_setConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
+		printf("sdr_setConfig error: %ld\n", sdr_setConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
+
+}
+
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
 	DmaRecHalfBuffCplt = 1;

@@ -69,10 +69,10 @@ sdr_dynamic_param_t 	sdr_input_dynamic_param_ptr;
 buffer_t				*sdr_input_buffer;
 buffer_t				*sdr_output_buffer;
 
-int32_t 				ratio_threshold1_dB = 9;
-int32_t					ratio_threshold2_dB = 7;
-int32_t 				hangover_number_of_frames = 6;
-int32_t					learning_frames_number = 10;
+int32_t 				ratio_threshold1_dB = 11;
+int32_t					ratio_threshold2_dB = 9;
+int32_t 				hangover_number_of_frames = 4;
+int32_t					learning_frames_number = 2;
 
 uint8_t DmaRecHalfBuffCplt = 0;
 uint8_t DmaRecBuffCplt = 0;
@@ -189,34 +189,37 @@ int main(void)
 	  }
 	  */
 
-	  if(DmaRecHalfBuffCplt==1)
-	  {
-		  for (i = 0; i < AUDIO_REC/2; i++)
-			  PlayBuf[i] = RecBuf[i]>>8;
+	  //if(DmaRecHalfBuffCplt==1)
+	  //{
+		 // for (i = 0; i < AUDIO_REC/2; i++)
+		//	  PlayBuf[i] = RecBuf[i]>>8;
 
-		  DmaRecHalfBuffCplt=0;
-	  }
-	  if (DmaRecBuffCplt==1)
-	  {
-		  for (i = AUDIO_REC/2; i < AUDIO_REC; i++)
-			  PlayBuf[i] = RecBuf[i]>>8;
+//		  DmaRecHalfBuffCplt=0;
+	//  }
+	  //if (DmaRecBuffCplt==1)
+	  //{
+		//  for (i = AUDIO_REC/2; i < AUDIO_REC; i++)
+			//  PlayBuf[i] = RecBuf[i]>>8;
 
-		  DmaRecBuffCplt=0;
-	  }
-	  if( SDR_ERROR_NONE != sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr))
-	  {
-		  printf("sdr_process error: %ld\r\n",sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr));
-	  }
-	  if( SDR_ERROR_NONE != sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
-	  {
-		  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
-	  }
-	  //else
-		  //printf("state= %ld\r\n", sdr_input_dynamic_param_ptr.output_state);
-	  for (i = 0; i < AUDIO_REC; i++)
-		  printf("%ld\r\n",PlayBuf[i]);
-	  printf("\r\n\r\nEND\r\n\r\n");
-	  if(sdr_input_dynamic_param_ptr.output_state == 1)
+	//	  DmaRecBuffCplt=0;
+	  //}
+	  if(DmaRecBuffCplt == 1){
+		  for (i = 0; i < AUDIO_REC; i++)
+		  {
+			  PlayBuf[i]=RecBuf[i]>>8;
+		  }
+		  if( SDR_ERROR_NONE != sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr))
+		  {
+			  printf("sdr_process error: %ld\r\n",sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr));
+		  }
+		  if( SDR_ERROR_NONE != sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
+		  {
+			  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
+		  }
+		  for (i = 0; i < AUDIO_REC; i++)
+			  printf("%ld\r\n",RecBuf[i]);
+		  printf("\r\n\r\nEND\r\n\r\n");
+		  if(sdr_input_dynamic_param_ptr.output_state == 1)
 	  		  {
 	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_RESET);
 	  		  	  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_SET);
@@ -226,6 +229,8 @@ int main(void)
 	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_SET);
 	  			  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
 	  		  }
+	  DmaRecBuffCplt = 0;
+	  }
   }
   /* USER CODE END 3 */
 }
@@ -565,7 +570,7 @@ static void SoundDetector_Init(void)
 
 void HAL_DFSDM_FilterRegConvHalfCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)
 {
-	DmaRecHalfBuffCplt = 1;
+	//DmaRecHalfBuffCplt = 1;
 }
 
 void HAL_DFSDM_FilterRegConvCpltCallback(DFSDM_Filter_HandleTypeDef *hdfsdm_filter)

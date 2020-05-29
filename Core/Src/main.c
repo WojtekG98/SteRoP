@@ -20,6 +20,12 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dfsdm.h"
+#include "dma.h"
+#include "lcd.h"
+#include "quadspi.h"
+#include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -29,6 +35,7 @@
 #include "smr_glo.h"
 #include "sdr_glo.h"
 #include <math.h>
+#include "stm32l476g_discovery_qspi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -39,6 +46,18 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define AUDIO_REC 160
+#define READ_ID_CMD 0x9E
+#define LCD_COM0	LCD_RAM_REGISTER0
+#define LCD_COM0_1	LCD_RAM_REGISTER1
+#define LCD_COM1	LCD_RAM_REGISTER2
+#define LCD_COM1_1	LCD_RAM_REGISTER3
+#define LCD_COM2	LCD_RAM_REGISTER4
+#define LCD_COM2_1	LCD_RAM_REGISTER5
+#define LCD_COM3	LCD_RAM_REGISTER6
+#define LCD_COM3_1	LCD_RAM_REGISTER7
+
+#define LCD_SEG8	(1U << 8)
+#define LCD_SEG25	(1U << 25)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -47,18 +66,17 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-DFSDM_Filter_HandleTypeDef hdfsdm1_filter0;
-DFSDM_Channel_HandleTypeDef hdfsdm1_channel2;
-DMA_HandleTypeDef hdma_dfsdm1_flt0;
-
-UART_HandleTypeDef huart2;
-DMA_HandleTypeDef hdma_usart2_rx;
-DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
+LCD_HandleTypeDef hlcd;
+
+QSPI_CommandTypeDef sCommand;
+uint8_t ID_REG[3];
 
 int32_t RecBuf[AUDIO_REC];
 int32_t PlayBuf[AUDIO_REC];
+uint8_t dane_do_wyslania[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+uint8_t dane_do_odebrania[8];
 
 int32_t					SoundDetectorOutputBuff[AUDIO_REC];
 
@@ -80,10 +98,6 @@ uint8_t DmaRecBuffCplt = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MX_GPIO_Init(void);
-static void MX_DMA_Init(void);
-static void MX_DFSDM1_Init(void);
-static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
 
 static void SoundDetector_Init(void);
@@ -133,15 +147,52 @@ int main(void)
   MX_DMA_Init();
   MX_DFSDM1_Init();
   MX_USART2_UART_Init();
+  //MX_QUADSPI_Init();
+  MX_LCD_Init();
   /* USER CODE BEGIN 2 */
 
+  //sCommand.InstructionMode 	 = QSPI_INSTRUCTION_1_LINE;
+  //sCommand.Instruction 		 = READ_ID_CMD;
+  //sCommand.AddressMode 		 = QSPI_ADDRESS_NONE;
+  //sCommand.AlternateByteMode = QSPI_ALTERNATE_BYTES_NONE;
+  //sCommand.DataMode			 = QSPI_DATA_1_LINE;
+  //sCommand.DummyCycles		 = 0;
+  //sCommand.Address			 = 0;
+  //sCommand.DdrMode			 = QSPI_DDR_MODE_DISABLE;
+  //sCommand.DdrHoldHalfCycle  = QSPI_DDR_HHC_ANALOG_DELAY;
+  //sCommand.SIOOMode			 = QSPI_SIOO_INST_EVERY_CMD;
+  //sCommand.NbData			 = 3;
 
+  //HAL_QSPI_Command(&hqspi, &sCommand, 1000);
+  //HAL_QSPI_Receive(&hqspi, ID_REG, 1000);
+  //asm("NOP");
+  //printf("%d, %d, %d\n\r", ID_REG[0], ID_REG[1], ID_REG[2]);
+  printf("BSP_QSPI_Init(): %d\r\n",BSP_QSPI_Init());
+  printf("BSP_QSPI_Erase_Sector(): %d\r\n", BSP_QSPI_Erase_Sector(0));
+  HAL_Delay(1000);
+  printf("BSP_QSPI_Write(): %d\r\n",BSP_QSPI_Write(dane_do_wyslania, 0, 8));
+  printf("BSP_QSPI_Read(): %d\r\n",BSP_QSPI_Read(dane_do_odebrania, 0, 8));
+  for (i = 0; i < 8; i++)
+	printf("%d\r\n", dane_do_odebrania[i]);
   HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuf, AUDIO_REC);
+  i = 0;
   SoundDetector_Init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  HAL_LCD_Clear(&hlcd);
+  HAL_LCD_Write(&hlcd, LCD_COM0, 0xFFFFFFFF, 0xFFFFFFFF);
+  HAL_LCD_Write(&hlcd, LCD_COM0_1, 0xFF, 0xFF);
+  HAL_LCD_Write(&hlcd, LCD_COM1, 0xFFFFFFFF, 0xFFFFFFFF);
+  HAL_LCD_Write(&hlcd, LCD_COM1_1, 0xFF, 0xFF);
+  HAL_LCD_Write(&hlcd, LCD_COM2, 0xFFFFFFFF, 0xFFFFFFFF);
+  HAL_LCD_Write(&hlcd, LCD_COM2_1, 0xFF, 0xFF);
+  HAL_LCD_Write(&hlcd, LCD_COM3, 0xFFFFFFFF, 0xFFFFFFFF);
+  HAL_LCD_Write(&hlcd, LCD_COM3_1, 0xFF, 0xFF);
+  HAL_LCD_UpdateDisplayRequest(&hlcd);
+  HAL_Delay(1500);
+  HAL_LCD_Clear(&hlcd);
   while (1)
   {
 
@@ -203,6 +254,18 @@ int main(void)
 
 	//	  DmaRecBuffCplt=0;
 	  //}
+	  //HAL_LCD_Write(&hlcd, LCD_COM3, ~(LCD_SEG8), LCD_SEG8);
+	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
+	  //HAL_Delay(100);
+	  //HAL_LCD_Write(&hlcd, LCD_COM2, ~(LCD_SEG8), LCD_SEG8);
+	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
+	  //HAL_Delay(100);
+	  //HAL_LCD_Write(&hlcd, LCD_COM3, ~(LCD_SEG25), LCD_SEG25);
+	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
+	  //HAL_Delay(100);
+	  HAL_LCD_Write(&hlcd, LCD_COM2, 0xFFFFFFFF, 0xFFFFFFFF);
+	  HAL_LCD_Write(&hlcd, LCD_COM2_1, 0xFF, 0xFF);
+	  HAL_Delay(100);
 	  if(DmaRecBuffCplt == 1){
 		  for (i = 0; i < AUDIO_REC; i++)
 		  {
@@ -216,9 +279,9 @@ int main(void)
 		  {
 			  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
 		  }
-		  for (i = 0; i < AUDIO_REC; i++)
-			  printf("%ld\r\n",RecBuf[i]);
-		  printf("\r\n\r\nEND\r\n\r\n");
+		 // for (i = 0; i < AUDIO_REC; i++)
+		//	  printf("%ld\r\n",RecBuf[i]);
+		  //printf("\r\n\r\nEND\r\n\r\n");
 		  if(sdr_input_dynamic_param_ptr.output_state == 1)
 	  		  {
 	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_RESET);
@@ -247,7 +310,8 @@ void SystemClock_Config(void)
 
   /** Initializes the CPU, AHB and APB busses clocks 
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSI|RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
   RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
@@ -275,9 +339,11 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_DFSDM1;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_USART2
+                              |RCC_PERIPHCLK_DFSDM1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Dfsdm1ClockSelection = RCC_DFSDM1CLKSOURCE_PCLK;
+  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -288,228 +354,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief DFSDM1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DFSDM1_Init(void)
-{
-
-  /* USER CODE BEGIN DFSDM1_Init 0 */
-
-  /* USER CODE END DFSDM1_Init 0 */
-
-  /* USER CODE BEGIN DFSDM1_Init 1 */
-
-  /* USER CODE END DFSDM1_Init 1 */
-  hdfsdm1_filter0.Instance = DFSDM1_Filter0;
-  hdfsdm1_filter0.Init.RegularParam.Trigger = DFSDM_FILTER_SW_TRIGGER;
-  hdfsdm1_filter0.Init.RegularParam.FastMode = ENABLE;
-  hdfsdm1_filter0.Init.RegularParam.DmaMode = ENABLE;
-  hdfsdm1_filter0.Init.FilterParam.SincOrder = DFSDM_FILTER_SINC3_ORDER;
-  hdfsdm1_filter0.Init.FilterParam.Oversampling = 250;
-  hdfsdm1_filter0.Init.FilterParam.IntOversampling = 1;
-  if (HAL_DFSDM_FilterInit(&hdfsdm1_filter0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  hdfsdm1_channel2.Instance = DFSDM1_Channel2;
-  hdfsdm1_channel2.Init.OutputClock.Activation = ENABLE;
-  hdfsdm1_channel2.Init.OutputClock.Selection = DFSDM_CHANNEL_OUTPUT_CLOCK_SYSTEM;
-  hdfsdm1_channel2.Init.OutputClock.Divider = 40;
-  hdfsdm1_channel2.Init.Input.Multiplexer = DFSDM_CHANNEL_EXTERNAL_INPUTS;
-  hdfsdm1_channel2.Init.Input.DataPacking = DFSDM_CHANNEL_STANDARD_MODE;
-  hdfsdm1_channel2.Init.Input.Pins = DFSDM_CHANNEL_SAME_CHANNEL_PINS;
-  hdfsdm1_channel2.Init.SerialInterface.Type = DFSDM_CHANNEL_SPI_RISING;
-  hdfsdm1_channel2.Init.SerialInterface.SpiClock = DFSDM_CHANNEL_SPI_CLOCK_INTERNAL;
-  hdfsdm1_channel2.Init.Awd.FilterOrder = DFSDM_CHANNEL_FASTSINC_ORDER;
-  hdfsdm1_channel2.Init.Awd.Oversampling = 1;
-  hdfsdm1_channel2.Init.Offset = 0;
-  hdfsdm1_channel2.Init.RightBitShift = 0x00;
-  if (HAL_DFSDM_ChannelInit(&hdfsdm1_channel2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_DFSDM_FilterConfigRegChannel(&hdfsdm1_filter0, DFSDM_CHANNEL_2, DFSDM_CONTINUOUS_CONV_ON) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DFSDM1_Init 2 */
-
-  /* USER CODE END DFSDM1_Init 2 */
-
-}
-
-/**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_USART2_UART_Init(void)
-{
-
-  /* USER CODE BEGIN USART2_Init 0 */
-
-  /* USER CODE END USART2_Init 0 */
-
-  /* USER CODE BEGIN USART2_Init 1 */
-
-  /* USER CODE END USART2_Init 1 */
-  huart2.Instance = USART2;
-  huart2.Init.BaudRate = 115200;
-  huart2.Init.WordLength = UART_WORDLENGTH_8B;
-  huart2.Init.StopBits = UART_STOPBITS_1;
-  huart2.Init.Parity = UART_PARITY_NONE;
-  huart2.Init.Mode = UART_MODE_TX_RX;
-  huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
-  huart2.Init.OverSampling = UART_OVERSAMPLING_16;
-  huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-  huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-  if (HAL_UART_Init(&huart2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN USART2_Init 2 */
-
-  /* USER CODE END USART2_Init 2 */
-
-}
-
-/** 
-  * Enable DMA controller clock
-  */
-static void MX_DMA_Init(void) 
-{
-
-  /* DMA controller clock enable */
-  __HAL_RCC_DMA1_CLK_ENABLE();
-
-  /* DMA interrupt init */
-  /* DMA1_Channel4_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
-  /* DMA1_Channel6_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel6_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel6_IRQn);
-  /* DMA1_Channel7_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Channel7_IRQn, 0, 0);
-  HAL_NVIC_EnableIRQ(DMA1_Channel7_IRQn);
-
-}
-
-/**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_GPIO_Init(void)
-{
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOC_CLK_ENABLE();
-  __HAL_RCC_GPIOH_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LD_R_Pin|M3V3_REG_ON_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PC0 */
-  GPIO_InitStruct.Pin = GPIO_PIN_0;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : VLCD_Pin SEG22_Pin SEG1_Pin SEG14_Pin 
-                           SEG9_Pin SEG13_Pin */
-  GPIO_InitStruct.Pin = VLCD_Pin|SEG22_Pin|SEG1_Pin|SEG14_Pin 
-                          |SEG9_Pin|SEG13_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF11_LCD;
-  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : JOY_CENTER_Pin JOY_LEFT_Pin JOY_RIGHT_Pin JOY_UP_Pin 
-                           JOY_DOWN_Pin */
-  GPIO_InitStruct.Pin = JOY_CENTER_Pin|JOY_LEFT_Pin|JOY_RIGHT_Pin|JOY_UP_Pin 
-                          |JOY_DOWN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : SEG23_Pin SEG0_Pin COM0_Pin COM1_Pin 
-                           COM2_Pin SEG10_Pin */
-  GPIO_InitStruct.Pin = SEG23_Pin|SEG0_Pin|COM0_Pin|COM1_Pin 
-                          |COM2_Pin|SEG10_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF11_LCD;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : SEG21_Pin SEG2_Pin SEG20_Pin SEG3_Pin 
-                           SEG19_Pin SEG4_Pin SEG11_Pin SEG12_Pin 
-                           COM3_Pin */
-  GPIO_InitStruct.Pin = SEG21_Pin|SEG2_Pin|SEG20_Pin|SEG3_Pin 
-                          |SEG19_Pin|SEG4_Pin|SEG11_Pin|SEG12_Pin 
-                          |COM3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF11_LCD;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LD_R_Pin */
-  GPIO_InitStruct.Pin = LD_R_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(LD_R_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LD_G_Pin */
-  GPIO_InitStruct.Pin = LD_G_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  HAL_GPIO_Init(LD_G_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : QSPI_CLK_Pin QSPI_CS_Pin QSPI_D0_Pin QSPI_D1_Pin 
-                           QSPI_D2_Pin QSPI_D3_Pin */
-  GPIO_InitStruct.Pin = QSPI_CLK_Pin|QSPI_CS_Pin|QSPI_D0_Pin|QSPI_D1_Pin 
-                          |QSPI_D2_Pin|QSPI_D3_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
-  GPIO_InitStruct.Alternate = GPIO_AF10_QUADSPI;
-  HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : SEG18_Pin SEG5_Pin SEG17_Pin SEG6_Pin 
-                           SEG16_Pin SEG7_Pin SEG15_Pin SEG8_Pin */
-  GPIO_InitStruct.Pin = SEG18_Pin|SEG5_Pin|SEG17_Pin|SEG6_Pin 
-                          |SEG16_Pin|SEG7_Pin|SEG15_Pin|SEG8_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF11_LCD;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : M3V3_REG_ON_Pin */
-  GPIO_InitStruct.Pin = M3V3_REG_ON_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(M3V3_REG_ON_GPIO_Port, &GPIO_InitStruct);
-
 }
 
 /* USER CODE BEGIN 4 */

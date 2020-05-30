@@ -24,6 +24,7 @@
 #include "dma.h"
 #include "lcd.h"
 #include "quadspi.h"
+#include "rtc.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -68,6 +69,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+RTC_TimeTypeDef sTime;
+uint8_t czas[3];
+uint8_t czas2[3];
+RTC_DateTypeDef sDate;
+uint8_t Joy_center_flag;
+
 LCD_HandleTypeDef hlcd;
 
 QSPI_CommandTypeDef sCommand;
@@ -77,6 +84,7 @@ int32_t RecBuf[AUDIO_REC];
 int32_t PlayBuf[AUDIO_REC];
 uint8_t dane_do_wyslania[8] = {1, 2, 3, 4, 5, 6, 7, 8};
 uint8_t dane_do_odebrania[8];
+uint32_t sector_nb = 0;
 
 int32_t					SoundDetectorOutputBuff[AUDIO_REC];
 
@@ -108,6 +116,7 @@ int _write(int file, char *ptr, int len)
 	return len;
 }
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -122,7 +131,7 @@ int _write(int file, char *ptr, int len)
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	uint8_t tmp[2];
 	uint16_t i = 0;
   /* USER CODE END 1 */
 
@@ -149,31 +158,15 @@ int main(void)
   MX_USART2_UART_Init();
   //MX_QUADSPI_Init();
   MX_LCD_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
-
-  //sCommand.InstructionMode 	 = QSPI_INSTRUCTION_1_LINE;
-  //sCommand.Instruction 		 = READ_ID_CMD;
-  //sCommand.AddressMode 		 = QSPI_ADDRESS_NONE;
-  //sCommand.AlternateByteMode = QSPI_ALTERNATE_BYTES_NONE;
-  //sCommand.DataMode			 = QSPI_DATA_1_LINE;
-  //sCommand.DummyCycles		 = 0;
-  //sCommand.Address			 = 0;
-  //sCommand.DdrMode			 = QSPI_DDR_MODE_DISABLE;
-  //sCommand.DdrHoldHalfCycle  = QSPI_DDR_HHC_ANALOG_DELAY;
-  //sCommand.SIOOMode			 = QSPI_SIOO_INST_EVERY_CMD;
-  //sCommand.NbData			 = 3;
-
-  //HAL_QSPI_Command(&hqspi, &sCommand, 1000);
-  //HAL_QSPI_Receive(&hqspi, ID_REG, 1000);
-  //asm("NOP");
-  //printf("%d, %d, %d\n\r", ID_REG[0], ID_REG[1], ID_REG[2]);
   printf("BSP_QSPI_Init(): %d\r\n",BSP_QSPI_Init());
-  printf("BSP_QSPI_Erase_Sector(): %d\r\n", BSP_QSPI_Erase_Sector(0));
-  HAL_Delay(1000);
-  printf("BSP_QSPI_Write(): %d\r\n",BSP_QSPI_Write(dane_do_wyslania, 0, 8));
-  printf("BSP_QSPI_Read(): %d\r\n",BSP_QSPI_Read(dane_do_odebrania, 0, 8));
-  for (i = 0; i < 8; i++)
-	printf("%d\r\n", dane_do_odebrania[i]);
+  //printf("BSP_QSPI_Erase_Chip(): %d\r\n", BSP_QSPI_Erase_Chip());
+  //HAL_Delay(1000);
+  //printf("BSP_QSPI_Write(): %d\r\n",BSP_QSPI_Write(dane_do_wyslania, 0, 8));
+  //printf("BSP_QSPI_Read(): %d\r\n",BSP_QSPI_Read(dane_do_odebrania, 0, 8));
+  //for (i = 0; i < 8; i++)
+  //printf("%d\r\n", dane_do_odebrania[i]);
   HAL_DFSDM_FilterRegularStart_DMA(&hdfsdm1_filter0, RecBuf, AUDIO_REC);
   i = 0;
   SoundDetector_Init();
@@ -199,73 +192,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  /*
-	  if((DmaRecHalfBuffCplt == 1) || (DmaRecBuffCplt == 1))
-	  {
-
-
-		  StartIndex = (DmaRecBuffCplt == 1) ? 512 : 0;
-		  for(i = 0; i < AUDIO_REC; i++)
-		  {
-			  PlayBuf[i] = RecBuf[i + StartIndex] >> 8;
-		  }
-		  if( SDR_ERROR_NONE != sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr))
-		  {
-			  printf("sdr_process error: %ld\r\n",sdr_process(sdr_input_buffer, sdr_output_buffer, persistent_mem_ptr));
-		  }
-	      if(DmaRecHalfBuffCplt  == 1)
-	      {
-	        DmaRecHalfBuffCplt  = 0;
-	      }
-	      else
-	      {
-	        DmaRecBuffCplt = 0;
-	      }
-		  if( SDR_ERROR_NONE != sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr))
-		  {
-			  printf("sdr_getConfig error: %ld",sdr_getConfig(&sdr_input_dynamic_param_ptr, persistent_mem_ptr));
-		  }
-		  else
-			  printf("state= %ld\r\n", sdr_input_dynamic_param_ptr.output_state);
-		  if(sdr_input_dynamic_param_ptr.output_state == 1)
-		  		  {
-		  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_RESET);
-		  		  	  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_SET);
-		  		  }
-		  		  else
-		  		  {
-		  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_SET);
-		  			  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
-		  		  }
-	  }
-	  */
-
-	  //if(DmaRecHalfBuffCplt==1)
-	  //{
-		 // for (i = 0; i < AUDIO_REC/2; i++)
-		//	  PlayBuf[i] = RecBuf[i]>>8;
-
-//		  DmaRecHalfBuffCplt=0;
-	//  }
-	  //if (DmaRecBuffCplt==1)
-	  //{
-		//  for (i = AUDIO_REC/2; i < AUDIO_REC; i++)
-			//  PlayBuf[i] = RecBuf[i]>>8;
-
-	//	  DmaRecBuffCplt=0;
-	  //}
-	  //HAL_LCD_Write(&hlcd, LCD_COM3, ~(LCD_SEG8), LCD_SEG8);
-	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
-	  //HAL_Delay(100);
-	  //HAL_LCD_Write(&hlcd, LCD_COM2, ~(LCD_SEG8), LCD_SEG8);
-	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
-	  //HAL_Delay(100);
-	  //HAL_LCD_Write(&hlcd, LCD_COM3, ~(LCD_SEG25), LCD_SEG25);
-	  //HAL_LCD_UpdateDisplayRequest(&hlcd);
-	  //HAL_Delay(100);
 	  HAL_LCD_Write(&hlcd, LCD_COM2, 0xFFFFFFFF, 0xFFFFFFFF);
 	  HAL_LCD_Write(&hlcd, LCD_COM2_1, 0xFF, 0xFF);
-	  HAL_Delay(100);
+	  HAL_Delay(1000);
 	  if(DmaRecBuffCplt == 1){
 		  for (i = 0; i < AUDIO_REC; i++)
 		  {
@@ -292,7 +221,37 @@ int main(void)
 	  			  HAL_GPIO_WritePin(LD_R_GPIO_Port, LD_R_Pin, GPIO_PIN_SET);
 	  			  HAL_GPIO_WritePin(LD_G_GPIO_Port, LD_G_Pin, GPIO_PIN_RESET);
 	  		  }
+		  tmp[0] = tmp[1];
+		  tmp[1] = sdr_input_dynamic_param_ptr.output_state;
+		  if (tmp[0] == 0 && tmp[1] == 1){
+  			  HAL_RTC_GetTime(&hrtc, &sTime, RTC_FORMAT_BIN);
+  			  HAL_RTC_GetDate(&hrtc, &sDate, RTC_FORMAT_BIN);
+  			  printf("%d_%d_%d - ", sDate.Year, sDate.Month, sDate.Date);
+  			  printf("%d:%d:%d\r\n", sTime.Hours, sTime.Minutes, sTime.Seconds);
+  			  printf("BSP_QSPI_Erase_Sector(%ld): %d\r\n", sector_nb, BSP_QSPI_Erase_Sector(sector_nb));
+  			  while(BSP_QSPI_GetStatus() != QSPI_OK)
+  			  {}
+  			  czas[0] = sTime.Hours;
+  			  czas[1] = sTime.Minutes;
+  			  czas[2] = sTime.Seconds;
+  			  printf("BSP_QSPI_Write(%ld): %d\r\n", sector_nb, BSP_QSPI_Write(czas, sector_nb, 3));
+  			  while(BSP_QSPI_GetStatus() != QSPI_OK)
+  			  {}
+  			  sector_nb+=2;
+  			  if (sector_nb >= 255)
+  				  sector_nb = 0;
+		  }
+		  printf("%d%d\r\n", tmp[0], tmp[1]);
 	  DmaRecBuffCplt = 0;
+	  }
+	  if (Joy_center_flag == 1){
+		  Joy_center_flag = 0;
+		  for(i = 0; i < sector_nb; i+=2){
+		  	  printf("BSP_QSPI_Read(%d): %d\r\n", i, BSP_QSPI_Read(czas2, i, 3));
+  			  while(BSP_QSPI_GetStatus() != QSPI_OK)
+  			  {}
+		  	  printf("%d:%d:%d\r\n", czas2[0], czas2[1], czas2[2]);
+		  }
 	  }
   }
   /* USER CODE END 3 */
@@ -357,6 +316,12 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){
+	if (GPIO_Pin == JOY_CENTER_Pin){
+		Joy_center_flag = 1;
+	}
+}
+
 static void SoundDetector_Init(void)
 {
 	/* CRC enable and reset */

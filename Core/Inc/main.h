@@ -74,6 +74,7 @@ void Error_Handler(void);
 #define JOY_UP_EXTI_IRQn EXTI3_IRQn
 #define JOY_DOWN_Pin GPIO_PIN_5
 #define JOY_DOWN_GPIO_Port GPIOA
+#define JOY_DOWN_EXTI_IRQn EXTI9_5_IRQn
 #define SEG23_Pin GPIO_PIN_6
 #define SEG23_GPIO_Port GPIOA
 #define SEG0_Pin GPIO_PIN_7
